@@ -45,10 +45,6 @@ import subprocess
 parser = argparse.ArgumentParser()
 
 # Input data
-parser.add_argument('--train_file', default='data/ptb/ptb-train.hdf5')
-parser.add_argument('--val_file', default='data/ptb/ptb-val.hdf5')
-parser.add_argument('--test_file', default='data/ptb/ptb-test.hdf5')
-parser.add_argument('--vocab_file', default='data/ptb/ptb.dict')
 parser.add_argument('--train_from', default='')
 
 
@@ -72,28 +68,17 @@ parser.add_argument('--init_factor', type=float, default=1.)
 
 
 
-# LM
-parser.add_argument('--lm_lr', default=0.0001, type=float)
-parser.add_argument('--revserse_lm_lr', default=0.0001, type=float)
-parser.add_argument('--reverse_lm_num_epoch', type=int, default=8)
-parser.add_argument('--lm_pretrain', type=int, default=0)
-parser.add_argument('--pretrained_lm', type=str, default="output/012_ptb_lm_pretraining/2020-05-24-01-16-46-nll103.07/forward_lm.pt")
-parser.add_argument('--reverse_lm_eval', type=int, default=1)
-
-
-
 # Model options
 parser.add_argument('--latent_dim', default=32, type=int)
 parser.add_argument('--dec_word_dim', default=512, type=int)
 parser.add_argument('--dec_h_dim', default=512, type=int)
 parser.add_argument('--dec_num_layers', default=1, type=int)
 parser.add_argument('--dec_dropout', default=0.2, type=float)
-parser.add_argument('--model', default='abp', type=str, choices = ['abp', 'vae', 'autoreg', 'savae', 'svi'])
+parser.add_argument('--model', default='abp', type=str, choices = ['abp', 'vae'])
 parser.add_argument('--train_n2n', default=1, type=int)
 parser.add_argument('--train_kl', default=1, type=int)
 
 # Optimization options
-parser.add_argument('--log_dir', default='/media/hdd/cyclical_annealing/log')
 parser.add_argument('--checkpoint_dir', default='models/ptb')
 parser.add_argument('--slurm', default=0, type=int)
 parser.add_argument('--warmup', default=0, type=int)
