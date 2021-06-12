@@ -372,7 +372,7 @@ def main():
     parser.add_argument('--batch_size', type=int, default=500)
     parser.add_argument('--log_freq', type=int, default=100)
     parser.add_argument('--viz_freq', type=int, default=1000)
-    parser.add_argument('--gpu', type=int, default=1)
+    parser.add_argument('--gpu', type=int, default=0)
     parser.add_argument('--x_dim', type=int, default=2)
     parser.add_argument('--dec_hidden', type=int, default=200)
     parser.add_argument('--enc_hidden', type=int, default=200)
@@ -398,7 +398,7 @@ def main():
     args = parser.parse_args()
     set_seed(args.seed)
     set_gpu(args.gpu)
-    device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     
     model = IBEBM(args)
     model.to(device)
