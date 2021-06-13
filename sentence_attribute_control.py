@@ -5,8 +5,6 @@ import os
 import json
 
 from dgmvae import evaluators, utt_utils
-from dgmvae import main as main_train
-from dgmvae import main_aggresive as main_train_agg
 from dgmvae.dataset import corpora
 from dgmvae.dataset import data_loaders
 from dgmvae.models.sent_models import *
@@ -66,76 +64,6 @@ class GELU(nn.Module):
     def forward(self, x):
         return F.gelu(x)
 
-class LM(nn.Module):
-    def __init__(self, vocab_size, id_to_word, config):
-        super().__init__()
-        self.config=config
-        self.vocab = id_to_word
-        # self.rev_vocab = corpus.rev_vocab
-        self.vocab_size = vocab_size
-        self.embed_size = config.embed_size
-        self.max_utt_len = config.max_utt_len
-        self.go_id = ID_BOS
-        self.eos_id = ID_EOS
-        self.unk_id = ID_UNK
-        self.pad_id = ID_PAD
-        self.eos = id_to_word[3]
-        self.pad = id_to_word[0]
-        self.bos = id_to_word[2]
-        self.num_layer_enc = config.num_layer_enc
-        self.num_layer_dec = config.num_layer_dec
-        self.dropout = config.dropout
-        self.enc_cell_size = config.enc_cell_size
-        self.dec_cell_size = config.dec_cell_size
-        self.rnn_cell = config.rnn_cell
-        self.max_dec_len = config.max_dec_len
-        self.use_attn = config.use_attn
-        self.beam_size = config.beam_size
-        self.utt_type = config.utt_type
-        self.bi_enc_cell = config.bi_enc_cell
-        self.attn_type = config.attn_type
-        self.enc_out_size = self.enc_cell_size * 2 if self.bi_enc_cell else self.enc_cell_size
-        self.concat_decoder_input = config.concat_decoder_input if "concat_decoder_input" in config else False
-        self.posterior_sample_n = config.post_sample_num if "post_sample_num" in config else 1
-
-        # build model here
-        self.dec_embedding = nn.Embedding(self.vocab_size, self.embed_size,
-                                          padding_idx=self.pad_id)
-        self.decoder = DecoderRNN(self.vocab_size, self.max_dec_len,
-                                  self.embed_size,
-                                  self.dec_cell_size,
-                                  self.go_id, self.eos_id, self.unk_id,
-                                  n_layers=self.num_layer_dec, rnn_cell=self.rnn_cell,
-                                  input_dropout_p=self.dropout,
-                                  dropout_p=self.dropout,
-                                  use_attention=self.use_attn,
-                                  attn_size=self.enc_cell_size,
-                                  attn_mode=self.attn_type,
-                                  use_gpu=True,
-                                  tie_output_embed=config.tie_output_embed,
-                                  embedding=self.dec_embedding)
-
-        self.nll_loss = criterions.NLLEntropy(self.pad_id, self.config)
-
-    def forward(self, data_feed, gen_type='greedy', train=True):
-        labels = data_feed[5]
-        dec_inputs = data_feed[4]
-        batch_size = dec_inputs.size(0)
-        dec_outs, dec_last, dec_ctx = self.decoder(batch_size,
-                                                   dec_inputs,
-                                                   init_state=None,
-                                                   mode=TEACH_FORCE, gen_type=gen_type,
-                                                   beam_size=self.beam_size,
-                                                   latent_variable=None)
-        
-        nll = self.nll_loss(dec_outs, labels)
-        
-        if not train:
-            num_word = (labels != self.pad_id).sum()
-            nll_avg_words = F.nll_loss(dec_outs.permute(0, 2, 1), labels, reduction='sum', ignore_index=self.pad_id) / num_word
-            return nll, nll_avg_words
-        else:
-            return nll
 
 
 class Classifier(nn.Module):
@@ -292,21 +220,13 @@ class GMVAE(BaseModel):
                                   embedding=self.dec_embedding)
         self.q_y_mean = nn.Linear(self.enc_out_size, config.latent_size)
         self.q_y_logvar = nn.Linear(self.enc_out_size, config.latent_size)
-        # self.post_c = nn.Sequential(
-        #     nn.Linear(self.enc_out_size, self.enc_out_size),
-        #     nn.ReLU(),
-        #     nn.Linear(self.enc_out_size, self.config.mult_k * self.config.k),
-        # )
         self.dec_init_connector = nn_lib.LinearConnector(
             config.latent_size,
             self.dec_cell_size,
             self.rnn_cell == 'lstm',
             has_bias=False)
-        # self.cat_connector = nn_lib.GumbelConnector()
 
         self.nll_loss = criterions.NLLEntropy(self.pad_id, self.config)
-        # self.cat_kl_loss = criterions.CatKLLoss()
-        # self.ppl = criterions.Perplexity(self.rev_vocab[PAD], self.config)
 
         self.ebm = nn.Sequential(
             nn.Linear(config.latent_size, config.ebm_hidden),
@@ -315,9 +235,6 @@ class GMVAE(BaseModel):
             GELU(),
             nn.Linear(config.ebm_hidden, config.num_cls)
         )
-
-
-        # self.init_gaussian()
 
         self.return_latent_key = ('log_qy', 'dec_init_state', 'y_ids', 'z')
         self.kl_w = 0.0
@@ -380,14 +297,7 @@ class GMVAE(BaseModel):
 
 
         # new
-        parser.add_argument('--pretrain_lm_path', type=str, default='/home/ubuntu/demvae-lsebm/logs/yelp/dgmvae/2021-03-26T06-27-00-025_yelp_lsebm_stop0.5_0ratio0.2_mi_metric_rPPL.py/lm.pt')
-        parser.add_argument('--pretrain_cls_path', type=str, default='/home/ubuntu/demvae-lsebm/logs/yelp/dgmvae/2021-03-26T06-27-00-025_yelp_lsebm_stop0.5_0ratio0.2_mi_metric_rPPL.py/cls.pt')
-        # parser.add_argument('--lm_max_epoch', type=int, default=10)
-        # parser.add_argument('--lm_eval_step', type=int, default=4000)
-        # parser.add_argument('--cls_max_epoch', type=int, default=10)
-        # parser.add_argument('--cls_eval_step', type=int, default=4000)
-        parser.add_argument('--lm_max_epoch', type=int, default=2)
-        parser.add_argument('--lm_eval_step', type=int, default=4000)
+        parser.add_argument('--pretrain_cls_path', type=str, default='ckpts/yelp/pretrained/cls.pt')
         parser.add_argument('--cls_max_epoch', type=int, default=2)
         parser.add_argument('--cls_eval_step', type=int, default=4000)
 
@@ -400,38 +310,6 @@ class GMVAE(BaseModel):
                                      {'params': [p[1] for p in self.named_parameters() if 'ebm' in p[0] and p[1].requires_grad], 'lr': 0.0001},
                                      ],
                                      lr=config.init_lr)
-        # elif config.op == 'sgd':
-        #     return torch.optim.SGD(self.parameters(), lr=config.init_lr,
-        #                            momentum=config.momentum)
-        # elif config.op == 'rmsprop':
-        #     return torch.optim.RMSprop(self.parameters(), lr=config.init_lr,
-        #                                momentum=config.momentum)
-
-
-    def init_gaussian(self):
-        self._log_uniform_y = Variable(torch.log(torch.ones(1) / self.config.k))
-        if self.use_gpu:
-            self._log_uniform_y = self.log_uniform_y.cuda()
-
-        mus = torch.randn(self.config.mult_k, self.config.k, self.config.latent_size)
-        logvar = torch.randn(self.config.mult_k, self.config.k, self.config.latent_size)
-        if torch.cuda.is_available():
-            mus = mus.cuda()
-            logvar = logvar.cuda()
-        self._gaussian_mus = torch.nn.Parameter(mus, requires_grad=True)  # change: False
-        self._gaussian_logvar = torch.nn.Parameter(logvar, requires_grad=True)  # change: False
-
-    @property
-    def gaussian_mus(self):
-        return self._gaussian_mus
-
-    @property
-    def gaussian_logvar(self):
-        return self._gaussian_logvar
-
-    @property
-    def log_uniform_y(self):
-        return self._log_uniform_y
 
     def sample_p_0(self, n):
         return torch.randn(*[n, self.config.latent_size]).cuda()
@@ -532,17 +410,6 @@ class GMVAE(BaseModel):
             return loss.nll
         if step == self.config.pretrain_ae_step:
             self.flush_valid = True
-
-        # if step is not None and 'anneal_function' in self.config:
-        #     vae_kl_weight = kl_anneal_function(self.config.anneal_function, step - self.config.pretrain_ae_step,
-        #                                        self.config.anneal_k, self.config.anneal_x0,
-        #                                        self.config.anneal_warm_up_step if "anneal_warm_up_step" in self.config else 0,
-        #                                        self.config.anneal_warm_up_step if "anneal_warm_up_value" in self.config else 0)
-        # else:
-        #     vae_kl_weight = 1.0
-
-        # if not self.config.anneal:
-        #     vae_kl_weight = 1.0
 
         mi_weight = self.config.mutual_weight
         cls_weight = self.config.cls_weight
@@ -653,70 +520,9 @@ class GMVAE(BaseModel):
         
         return qz_mean
 
-    def z_optimize(self, sample_z, cls_labels, data_feed, mode, gen_type='greedy', sample_n=1, batch_cnt=1, return_latent=False, vae_kl_weight=1.):
-        # dec_init_state = self.dec_init_connector(sample_z)
-        # labels = data_feed[5]
-        # batch_size = sample_z.size(0)
-
-        # # decode
-        # dec_outs, dec_last, dec_ctx = self.decoder(batch_size,
-        #                                            None,
-        #                                            dec_init_state,
-        #                                            mode=GEN, gen_type="greedy",
-        #                                            beam_size=self.beam_size,
-        #                                            latent_variable=sample_z if self.concat_decoder_input else None)
-
-
-        # # compute loss or return results
-        # nll = self.nll_loss(dec_outs, labels)
-
-        # # KL(q(z|x) || p(z))
-        # # zkl = torch.mean(-0.5 * torch.sum(1 + qz_logvar - qz_mean ** 2 - qz_logvar.exp(), dim=1), dim=0)           
-        # loss_g_kl = - 0.5 * (1 + qz_logvar - qz_mean ** 2 - qz_logvar.exp())
-        # kl_mask = (loss_g_kl > self.config.dim_target_kl).float()
-        # zkl = (kl_mask * loss_g_kl).sum(dim=1).mean()
-
-        logits = self.ebm_prior(sample_z, cls_output=True)
-
-        # # sentiment classification
-        # cls_labels = data_feed[1].long().squeeze(-1)
-        cls_loss = F.cross_entropy(logits, cls_labels)
-
-        # # E_q(z|x) (f(z))
-        # prob_pos = logits.mean()
-
-        # # E_p(z) (f(z))
-        # z_e_0 = self.sample_p_0(n=self.config.batch_size)
-        # prior_sample_z, prior_z_grad_norm = self.sample_langevin_prior_z(z_e_0, verbose=(batch_cnt%500==0) if batch_cnt else False)
-        # prob_neg = self.ebm_prior(prior_sample_z.detach()).mean()
-
-        # cd = prob_pos - prob_neg
-
-
-        # mi = self.compute_mi(sample_z)
-
-        # with torch.no_grad():
-        #     cls_acc = (logits.argmax(dim=-1) == cls_labels).float().mean()
-        # results = Pack(nll=nll, mi=mi, zkl=zkl, prob_pos=prob_pos, prob_neg=prob_neg, cd=cd, cls_loss=cls_loss, cls_acc=cls_acc)
-
-        # if return_latent:
-        #     # results['log_qy'] = log_qc
-        #     results['dec_init_state'] = dec_init_state
-        #     # results['y_ids'] = c_ids
-        #     results['z'] = sample_z
-
-        return cls_loss
 
 
     def st_sampling(self, z):
-        # sample_c = torch.randint(0, self.config.k, [batch_size, self.config.mult_k], dtype=torch.long).cuda()
-        # index = (self.torch2var(torch.arange(self.config.mult_k) * self.config.k) + sample_c).view(-1)
-        # mean = self.gaussian_mus.view(-1, self.config.latent_size)[index].squeeze()
-        # sigma = torch.exp(self.gaussian_logvar * 0.5).view(-1, self.config.latent_size)[index].squeeze()
-        # zs = self.reparameterization(mean, 2 * torch.log(torch.abs(sigma) + 1e-15), sample=True)
-        # zs = zs.view(-1, self.config.mult_k * self.config.latent_size)
-        # z_e_0 = self.sample_p_0(n=batch_size)
-        # zs, _ = self.sample_langevin_prior_z(z_e_0)
         dec_init_state = self.dec_init_connector(z)
         _, _, outputs = self.decoder(z.size(0),
                                      None, dec_init_state,
@@ -729,10 +535,6 @@ class GMVAE(BaseModel):
     def forward(self, data_feed, mode, gen_type='greedy', sample_n=1, batch_cnt=1, return_latent=False, vae_kl_weight=1.):
         posterior_sample_n = self.posterior_sample_n if self.training else 1
 
-        # if type(data_feed) is tuple:
-        #     data_feed = data_feed[0]
-        # batch_size = len(data_feed['output_lens'])
-        # out_utts = self.np2var(data_feed['outputs'], LONG)
         out_utts = data_feed[2]
         batch_size = out_utts.size(0)
 
@@ -759,13 +561,6 @@ class GMVAE(BaseModel):
                                         qz_logvar.repeat(posterior_sample_n, 1),
                                         sample=False)  # batch x (latent_size*mult_k)
 
-        # # q(c|x)
-        # qc_logits = self.post_c(x_last).view(-1, self.config.k)
-        # log_qc = F.log_softmax(qc_logits, -1)  # [batch*mult_k, k]
-        # sample_c, c_ids = self.cat_connector(qc_logits, 1.0, self.use_gpu, hard=not self.training, return_max_id=True)
-        # # sample_c: [batch*mult_k, k], c_ids: [batch*mult_k, 1]
-        # # sample_c = sample_c.view(-1, self.config.mult_k * self.config.k)
-        # c_ids = c_ids.view(-1, self.config.mult_k)
 
         # Prepare for decoding
         dec_init_state = self.dec_init_connector(sample_z)
@@ -797,26 +592,8 @@ class GMVAE(BaseModel):
         else:
             # RNN reconstruction
             nll = self.nll_loss(dec_outs, labels.repeat(posterior_sample_n, 1))
-            # ppl = self.ppl(dec_outs, labels.repeat(posterior_sample_n, 1))
-            # # Regularization terms
-            # qc = torch.exp(log_qc.view(-1, self.config.mult_k, self.config.k))
-            # ZKL & dispersion term
-            # zkl = self.zkl_loss(qc, qz_mean, qz_logvar, mean_prior=True)  # [batch_size x mult_k]
-            # zkl_real = self.zkl_loss(qc, qz_mean, qz_logvar, mean_prior=False)  # [batch_size x mult_k]
-            # zkl = torch.sum(torch.mean(zkl, dim=0))
-            # zkl_real = torch.sum(torch.mean(zkl_real, dim=0))
-            # dispersion = self.dispersion(qc)
-            # # CKL & MI term
-            # avg_log_qc = torch.log(torch.mean(qc, dim=0) + 1e-15)
-            # agg_ckl = self.cat_kl_loss(avg_log_qc, self.log_uniform_y, batch_size, unit_average=True, average=False)
-            # agg_ckl = torch.sum(agg_ckl)
-            # ckl_real = self.cat_kl_loss(log_qc, self.log_uniform_y, batch_size, unit_average=True, average=False)
-            # ckl_real = torch.sum(torch.mean(ckl_real.view(-1, self.config.mult_k), dim=0))
-            # # H(C) - H(C|X)
-            # mi = - torch.sum(torch.exp(avg_log_qc) * avg_log_qc) + torch.sum(torch.exp(log_qc) * log_qc) / batch_size
 
             # KL(q(z|x) || p(z))
-            # zkl = torch.mean(-0.5 * torch.sum(1 + qz_logvar - qz_mean ** 2 - qz_logvar.exp(), dim=1), dim=0)           
             loss_g_kl = - 0.5 * (1 + qz_logvar - qz_mean ** 2 - qz_logvar.exp())
             kl_mask = (loss_g_kl > self.config.dim_target_kl).float()
             zkl = (kl_mask * loss_g_kl).sum(dim=1).mean()
@@ -881,17 +658,6 @@ class GMVAE(BaseModel):
         qz_logvar = self.q_y_logvar(x_last)
         sample_z = self.reparameterization(qz_mean, qz_logvar, sample=True)
 
-        # log_qzx = torch.sum(
-        #     - (sample_z - qz_mean) * (sample_z - qz_mean) / (2 * torch.exp(qz_logvar)) - 0.5 * qz_logvar - 0.5 * math.log(
-        #         math.pi * 2),
-        #     dim=-1)
-        # sample_z_repeat = sample_z.view(-1, self.config.mult_k, 1, self.config.latent_size).repeat(1, 1, self.config.k, 1)
-        # log_pzc = torch.sum(
-        #     - (sample_z_repeat - self.gaussian_mus) * (sample_z_repeat - self.gaussian_mus) / (2 * torch.exp(self.gaussian_logvar))
-        #     - 0.5 * self.gaussian_logvar - 0.5 * math.log(math.pi * 2),
-        #     dim=-1)  # [batch_size, mult_k, k]
-        # log_pz = torch.log(torch.mean(torch.exp(log_pzc.double()), dim=-1))  #
-        # log_pz = torch.sum(log_pz, dim=-1)
 
         # Calculate p(x|z)
         dec_init_state = self.dec_init_connector(sample_z)
@@ -932,11 +698,6 @@ class GMVAE(BaseModel):
         ll = numerator / denominator
         ll = ll.view(-1, sample_num)
         
-        # if sample_type == "logLL":
-        #     return (-nll.double() + log_pz - log_qzx.double()).view(-1, sample_num)
-        # else:
-        #     ll = torch.exp(-nll.double() + log_pz - log_qzx.double())  # exp ( log (p(z)p(x|z) / q(z|x)) )
-        #     ll = ll.view(-1, sample_num)
         return ll
 
     def sampling(self, batch_size):
@@ -954,9 +715,9 @@ class GMVAE(BaseModel):
 from dgmvae.utils import str2bool, process_config
 import argparse
 import logging
-import dgmvae.models.sent_models as sent_models
-import dgmvae.models.sup_models as sup_models
-import dgmvae.models.dialog_models as dialog_models
+# import dgmvae.models.sent_models as sent_models
+# import dgmvae.models.sup_models as sup_models
+# import dgmvae.models.dialog_models as dialog_models
 
 def add_default_training_parser(parser):
     parser.add_argument('--op', type=str, default='adam')
@@ -977,7 +738,8 @@ def add_default_training_parser(parser):
     parser.add_argument('--max_epoch', type=int, default=24)
     parser.add_argument('--save_model', type=str2bool, default=True)
     parser.add_argument('--use_gpu', type=str2bool, default=True)
-    parser.add_argument('--gpu_idx', type=int, default=3)
+    parser.add_argument('--gpu_idx', type=int, default=1)
+    parser.add_argument('--seed', default=3435, type=int)
     parser.add_argument('--print_step', type=int, default=100)
     parser.add_argument('--eval_step', type=int, default=3500)
     # parser.add_argument('--eval_step', type=int, default=3)
@@ -1163,7 +925,7 @@ def get_sent(model, de_tknize, data, b_id, attn=None, attn_ctx=None, stop_eos=Tr
         except:
             return " ".join(ws), "", ids
 
-def train(model, train_feed, valid_feed, test_feed, config, evaluator, lm, classifier, gen=None):
+def train(model, train_feed, valid_feed, test_feed, config, evaluator, classifier, gen=None):
     if gen is None:
         gen = generate
 
@@ -1190,7 +952,6 @@ def train(model, train_feed, valid_feed, test_feed, config, evaluator, lm, class
                                               ratio_increase=config.ratio_increase,
                                               ratio_zero=config.ratio_zero)
 
-    # vae_kl_weights = [0.0] * model.config.max_epoch * (train_feed.data_size // model.config.batch_size)
 
 
     prior_params = [p[1] for p in model.named_parameters() if 'ebm' in p[0] and p[1].requires_grad is True]
@@ -1234,52 +995,9 @@ def train(model, train_feed, valid_feed, test_feed, config, evaluator, lm, class
     # do bleu eval
         if batch_cnt % config.eval_step == 0:
         # if batch_cnt % 200 == 0:
-            evaluation(model, test_feed, train_feed, evaluator, batch_cnt, vae_kl_weight, lm, classifier)
+            evaluation(model, test_feed, train_feed, evaluator, batch_cnt, vae_kl_weight, classifier)
         
 
-def train_lm(model, train_feed, test_feed, config, optimizer):
-    batch_cnt = 0
-    while batch_cnt < (config.lm_max_epoch * config.lm_eval_step):
-        model.train()
-        batch = train_feed.next_batch()
-        if model.config.debug and batch_cnt > 200:
-            break
-
-        optimizer.zero_grad()
-        loss = model(batch)
-        loss.backward()
-        optimizer.step()
-        batch_cnt += 1
-
-        if batch_cnt % config.print_step == 0:
-            logger.info('batch/max_batch/ep: {:5d}/ {:5d}/ {:5d} '.format(batch_cnt, train_feed.num_batch, 0) +
-            'lm nll: {:8.3f} '.format(loss)
-            )
-        if batch_cnt % config.lm_eval_step == 0:
-            eval_lm(model, test_feed)
-        
-
-def eval_lm_batch(model, test_feed):
-    model.eval()
-    nll, nll_avg_words = model(test_feed, train=False)
-    ppl = torch.exp(nll_avg_words)
-    return ppl, nll
-
-def eval_lm(model, test_feed):
-    ppls = []
-    nlls = [] 
-    while True:
-        batch = test_feed.next_batch()
-        ppl, nll = eval_lm_batch(model, batch)
-        ppls.append(ppl)
-        nlls.append(nll)
-        if test_feed.pointer == 0:
-            break
-    
-    ppl = torch.tensor(ppls).mean()
-    nll = torch.tensor(nlls).mean()
-
-    logger.info('----->| ppl:{:8.4f} | nll:{:8.4f}'.format(ppl, nll))
 
 
 def train_cls(model, train_feed, test_feed, config, optimizer):
@@ -1468,6 +1186,17 @@ def get_dekenize():
     return lambda x: " ".join(x)
 
 
+def set_seed(seed):
+    import random
+    os.environ['PYTHONHASHSEED'] = str(seed)
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed(seed)
+        torch.cuda.manual_seed_all(seed)
+
+
 def generate(model, data_feed, config, evaluator, num_batch=1, dest_f=None):
     model.eval()
     old_batch_size = config.batch_size
@@ -1537,32 +1266,14 @@ def generate(model, data_feed, config, evaluator, num_batch=1, dest_f=None):
     logger.info("Generation Done")
     return evaluator.get_report(include_error=dest_f is not None, get_value=True)
 
-def z_optimize(z, model, labels, verbose=False):
-    z = z.clone().detach().requires_grad_(True)
-    assert z.grad is None
-    step_size = 1.
-    num_step = 5
-    for i in range(num_step):
-        loss = model.z_optimize(z, labels, None, None)
-        z_grad = torch.autograd.grad(loss, z)[0]
-        z = z - step_size * z_grad
-        step_size = step_size * 0.9
-
-        if verbose:
-            logger.info('optimize z {:3d}/{:3d}: loss={:8.3f}'.format(i+1, num_step, loss.item()))
-
-    return z.detach().clone()
 
 
-def eval_sentiment_control(model, data_feed, config, evaluator, lm, classifier, ae_train, num_batch=1, dest_f=None):
+def eval_sentiment_control(model, data_feed, config, evaluator, classifier, ae_train, num_batch=1, dest_f=None):
     model.train()
 
     de_tknize = get_dekenize()
 
-    # evaluator.initialize()
     batch_cnt = 0
-    true_ppls = []
-    transferred_ppls = []
     true_accs = []
     true_accs_pos = []
     true_accs_neg = []
@@ -1576,11 +1287,10 @@ def eval_sentiment_control(model, data_feed, config, evaluator, lm, classifier, 
             break
 
         batch_cnt += 1
-        logger.info('---> eval batch: {}'.format(batch_cnt))
+        logger.info('---> eval batch {}'.format(batch_cnt))
 
         cls_labels = batch[1]
         batch_size = cls_labels.shape[0]
-        logger.info('cls_labels: {}'.format(cls_labels.long().squeeze().cpu()))
         z_e_0 = model.sample_p_0(n=batch_size)
         z_st = model.sample_langevin_prior_z(z_e_0, y=cls_labels.long().squeeze(-1))[0]
         labels = batch[5]
@@ -1606,8 +1316,6 @@ def eval_sentiment_control(model, data_feed, config, evaluator, lm, classifier, 
         
         with torch.no_grad():
             padding = lambda x, max_len: [el + (max_len - len(el)) * [ID_PAD] for el in x]
-            padding_go = lambda x, max_len: [[model.go_id] + el + (max_len - len(el)) * [ID_PAD] for el in x]
-            padding_eos = lambda x, max_len: [el + [model.eos_id] + (max_len - len(el)) * [ID_PAD] for el in x]
             list_max_len = lambda x: max([len(el) for el in x])
 
             pred_ids = torch.tensor(padding(pred_ids_list, list_max_len(pred_ids_list)))
@@ -1624,19 +1332,6 @@ def eval_sentiment_control(model, data_feed, config, evaluator, lm, classifier, 
             _, acc_true, acc_true_pos, acc_true_neg = eval_cls_batch(classifier, cls_true_batch)
             
 
-            ids_2_lm_input = lambda x_go, x_eos: (None, None, None, None,
-                                        x_go.cuda().long(),
-                                        x_eos.cuda().long(),
-                                        None, None)
-            pred_ids_go = torch.tensor(padding_go(pred_ids_list, list_max_len(pred_ids_list)))
-            pred_ids_eos = torch.tensor(padding_eos(pred_ids_list, list_max_len(pred_ids_list)))
-
-
-            lm_pred_batch = ids_2_lm_input(pred_ids_go, pred_ids_eos)
-            ppl_pred, _ = eval_lm_batch(lm, lm_pred_batch)
-
-            transferred_ppls.append(ppl_pred.cpu() * batch_size)
-
             true_accs.append(acc_true.cpu() * batch_size)
             true_accs_pos.append(acc_true_pos.cpu() * batch_size)
             true_accs_neg.append(acc_true_neg.cpu() * batch_size)
@@ -1649,17 +1344,13 @@ def eval_sentiment_control(model, data_feed, config, evaluator, lm, classifier, 
 
     list_mean = lambda x: torch.tensor(x).sum() / sum(batch_sizes)
 
-    logger.info('sentiment control eval: | tran ppl: {:8.4f} | true acc: {:8.4f} | true pos acc: {:8.4f} | true neg acc: {:8.4f} | tran acc: {:8.4f} |  tran pos acc: {:8.4f} | tran neg acc: {:8.4f} |'.format(
-        list_mean(transferred_ppls), list_mean(true_accs), list_mean(true_accs_pos), list_mean(true_accs_neg), 
+    logger.info('sentiment control eval: | true acc: {:8.4f} | true pos acc: {:8.4f} | true neg acc: {:8.4f} | tran acc: {:8.4f} |  tran pos acc: {:8.4f} | tran neg acc: {:8.4f} |'.format(
+        list_mean(true_accs), list_mean(true_accs_pos), list_mean(true_accs_neg), 
         list_mean(transferred_accs), list_mean(transferred_accs_pos), list_mean(transferred_accs_neg)
     ))
 
 
-def evaluation(model, test_feed, train_feed, evaluator, epoch, kl_weight, lm, classifier):
-    # if config.aggressive:
-    #     engine = main_train_agg
-    # else:
-    #     engine = main_train
+def evaluation(model, test_feed, train_feed, evaluator, epoch, kl_weight, classifier):
         
     if config.forward_only:
         test_file = os.path.join(config.log_dir, config.load_sess,
@@ -1681,18 +1372,18 @@ def evaluation(model, test_feed, train_feed, evaluator, epoch, kl_weight, lm, cl
     ae_train = kl_weight > 0.2
     with open(os.path.join(transfer_file), "w") as f:
         print("Saving test to {}".format(transfer_file))
-        eval_sentiment_control(model, test_feed, config, evaluator, lm, classifier, ae_train, num_batch=None, dest_f=f)
+        eval_sentiment_control(model, test_feed, config, evaluator, classifier, ae_train, num_batch=None, dest_f=f)
 
 
     with open(os.path.join(test_file), "w") as f:
         print("Saving test to {}".format(test_file))
         generate(model, train_feed, config, evaluator, num_batch=None, dest_f=f)
 
-    logger.info('\n\n recon blue \n\n')
-    multi_bleu_perl(test_file, config.session_dir)
     model.train()
 
 def main(config):
+    set_seed(config.seed)
+
     prepare_dirs_loggers(config, os.path.basename(__file__))
 
     evaluator = evaluators.BleuEvaluator("CornellMovie")
@@ -1726,33 +1417,10 @@ def main(config):
     test_feed.create_batches(eval_file_list, eval_label_list, if_shuffle=False)
 
 
-    lm = LM(vocab_size, id_to_word, config)
-    for param in lm.parameters():
-        param.data.uniform_(-0.1, 0.1)
-    lm.cuda()
-
     classifer = Classifier(vocab_size, id_to_word, config)
     for param in classifer.parameters():
         param.data.uniform_(-0.1, 0.1)
     classifer.cuda()
-
-
-    if not config.pretrain_lm_path:
-        lm_optimizer = torch.optim.Adam(filter(lambda p: p.requires_grad, lm.parameters()), lr=config.init_lr)
-        train_lm(lm, train_feed, test_feed, config, lm_optimizer)
-        save_path = os.path.join(config.session_dir, config.load_sess, 'lm.pt')
-        torch.save({
-            'model_state_dict': lm.state_dict(),
-            }, save_path)
-        train_feed.create_batches(train_file_list, train_label_list, if_shuffle=True)    
-        test_feed.create_batches(eval_file_list, eval_label_list, if_shuffle=False)
-        logger.info('saved pretrained lm')
-    else:
-        ckpt = torch.load(config.pretrain_lm_path)
-        lm.load_state_dict(ckpt['model_state_dict'])
-        eval_lm(lm, test_feed)
-        test_feed.create_batches(eval_file_list, eval_label_list, if_shuffle=False)
-        logger.info('loaded pretrained lm')
 
 
     if not config.pretrain_cls_path:
@@ -1766,7 +1434,7 @@ def main(config):
         test_feed.create_batches(eval_file_list, eval_label_list, if_shuffle=False)
         logger.info('saved pretrained classifier')
     else:
-        ckpt = torch.load(config.pretrain_cls_path)
+        ckpt = torch.load(config.pretrain_cls_path, map_location=torch.device('cuda:{}'.format(config.gpu_idx)))
         classifer.load_state_dict(ckpt['model_state_dict'])
         eval_cls(classifer, test_feed)
         test_feed.create_batches(eval_file_list, eval_label_list, if_shuffle=False)
@@ -1795,8 +1463,7 @@ def main(config):
     model = get_model(vocab_size, id_to_word, config)
 
     if config.forward_only is False:
-        train(model, train_feed, train_feed,
-            test_feed, config, evaluator, lm, classifer, gen=utt_utils.generate)
+        train(model, train_feed, train_feed, test_feed, config, evaluator, classifer, gen=utt_utils.generate)
 
 if __name__ == "__main__":
     config = get_parser()

@@ -21,9 +21,9 @@ from torch.nn.parameter import Parameter
 
 import torch.nn.functional as F
 import numpy as np
-import h5py
+# import h5py
 import time
-from optim_n2n import OptimN2N
+# from optim_n2n import OptimN2N
 from data import Dataset
 import utils
 import logger
@@ -679,8 +679,9 @@ class RNNVAE(nn.Module):
 ##--------------------------------------------------------------------------------------------------------------------##
 
 def main(args, output_dir):
-    np.random.seed(args.seed)
-    torch.manual_seed(args.seed)
+    set_seed(args.seed)
+    # np.random.seed(args.seed)
+    # torch.manual_seed(args.seed)
 
 
     corpus_client = DailyDialogCorpus(args)
@@ -1260,6 +1261,16 @@ def set_gpu(gpu):
     if torch.cuda.is_available():
         torch.cuda.set_device(0)
         torch.backends.cudnn.benchmark = True
+
+
+def set_seed(seed):
+  os.environ['PYTHONHASHSEED'] = str(seed)
+  random.seed(seed)
+  np.random.seed(seed)
+  torch.manual_seed(seed)
+  if torch.cuda.is_available():
+    torch.cuda.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
 
 
 if __name__ == '__main__':

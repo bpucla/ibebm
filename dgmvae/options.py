@@ -1,9 +1,9 @@
 from dgmvae.utils import str2bool, process_config
 import argparse
 import logging
-import dgmvae.models.sent_models as sent_models
-import dgmvae.models.sup_models as sup_models
-import dgmvae.models.dialog_models as dialog_models
+# import dgmvae.models.sent_models as sent_models
+# import dgmvae.models.sup_models as sup_models
+# import dgmvae.models.dialog_models as dialog_models
 
 def add_default_training_parser(parser):
     parser.add_argument('--op', type=str, default='adam')
