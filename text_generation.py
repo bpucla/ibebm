@@ -573,9 +573,9 @@ class GMVAE(BaseModel):
 from dgmvae.utils import str2bool
 import argparse
 import logging
-import dgmvae.models.sent_models as sent_models
-import dgmvae.models.sup_models as sup_models
-import dgmvae.models.dialog_models as dialog_models
+# import dgmvae.models.sent_models as sent_models
+# import dgmvae.models.sup_models as sup_models
+# import dgmvae.models.dialog_models as dialog_models
 
 def add_default_training_parser(parser):
     parser.add_argument('--op', type=str, default='adam')
@@ -597,7 +597,7 @@ def add_default_training_parser(parser):
     # parser.add_argument('--max_epoch', type=int, default=2)
     parser.add_argument('--save_model', type=str2bool, default=True)
     parser.add_argument('--use_gpu', type=str2bool, default=True)
-    parser.add_argument('--gpu_idx', type=int, default=0)
+    parser.add_argument('--gpu_idx', type=int, default=1)
     parser.add_argument('--print_step', type=int, default=100)
     parser.add_argument('--fix_batch', type=str2bool, default=False)
     parser.add_argument('--ckpt_step', type=int, default=2000)
