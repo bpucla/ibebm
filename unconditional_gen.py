@@ -21,11 +21,11 @@ from torch.nn.parameter import Parameter
 
 import torch.nn.functional as F
 import numpy as np
-# import h5py
+import h5py
 import time
 # from optim_n2n import OptimN2N
 from data import Dataset
-import utils
+# import utils
 import logger
 import math
 
@@ -35,7 +35,7 @@ import math
 import torch.nn.utils.spectral_norm as spectral_norm
 from collections import OrderedDict, Counter
 from dataloader_bases import DataLoader
-from dgmvae import get_chat_tokenize
+# from dgmvae import get_chat_tokenize
 
 from sklearn.metrics.cluster import homogeneity_score
 import subprocess
@@ -90,8 +90,8 @@ parser.add_argument('--momentum', default=0.5, type=float)
 parser.add_argument('--lr', default=0.001, type=float)
 parser.add_argument('--prior_lr', default=0.0001, type=float)
 parser.add_argument('--max_grad_norm', default=5, type=float)
-parser.add_argument('--gpu', default=3, type=int)
-parser.add_argument('--seed', default=3435, type=int)
+parser.add_argument('--gpu', default=1, type=int)
+parser.add_argument('--seed', default=8888, type=int)
 parser.add_argument('--print_every', type=int, default=100)
 parser.add_argument('--sample_every', type=int, default=1000)
 parser.add_argument('--kl_every', type=int, default=100)
@@ -760,7 +760,6 @@ def main(args, output_dir):
     z_means = torch.zeros(5, args.latent_dim, device=device, dtype=torch.float)
 
 
-    compute_homogeneity(model, test_feed, args)
 
     i = 0
     vae_kl_weights = frange_cycle_zero_linear(30*2905, start=0.0, stop=0.5, 
@@ -911,16 +910,17 @@ def main(args, output_dir):
         epoch_train_time = time.time() - start_time
         logger.info('Time Elapsed: %.1fs' % epoch_train_time)
 
-        logger.info('---')
-        logger.info('---')
-        logger.info('---')
-        compute_homogeneity(model, test_feed, args)
-        logger.info('---')
-        logger.info('---')
-        logger.info('---')
+        if epoch > 15:
+            logger.info('---')
+            logger.info('---')
+            logger.info('---')
+            compute_homogeneity(model, test_feed, args)
+            logger.info('---')
+            logger.info('---')
+            logger.info('---')
 
 
-        get_cluster_examples(args, model, test_feed, corpus_client, epoch=epoch)
+        # get_cluster_examples(args, model, test_feed, corpus_client, epoch=epoch)
 
         logger.info('--------------------------------')
         logger.info('Checking train perf...')
@@ -1071,22 +1071,22 @@ def eval(args, test_feed, model, corpus_client, epoch=0, mode='test'):
                 logger.info('---')
 
 
-    if mode is 'test':
-        cond_prior_f = open(os.path.join(output_dir, "cond-prior-ep{:0>2d}".format(epoch) + mode), "w")
-        for k in range(5, args.num_cls + 5, 5):
-            # every 5 k's as a group; generate 6 samples for each k; 5 * 6 = batch size
-            assert sents.size(0) == 5 * 6
-            z_0_prior = sample_p_0(sents, args)
-            y = torch.tensor(list(range(k-5, k))).repeat_interleave(6).to(sents.device).long()
-            z_prior, _ = model.infer_prior_z(z_0_prior, args, y=y)
-            prior_sample_ids, _ = model.inference(device, rev_vocab[BOS], z=z_prior)
+    # if mode is 'test':
+    #     cond_prior_f = open(os.path.join(output_dir, "cond-prior-ep{:0>2d}".format(epoch) + mode), "w")
+    #     for k in range(5, args.num_cls + 5, 5):
+    #         # every 5 k's as a group; generate 6 samples for each k; 5 * 6 = batch size
+    #         assert sents.size(0) == 5 * 6
+    #         z_0_prior = sample_p_0(sents, args)
+    #         y = torch.tensor(list(range(k-5, k))).repeat_interleave(6).to(sents.device).long()
+    #         z_prior, _ = model.infer_prior_z(z_0_prior, args, y=y)
+    #         prior_sample_ids, _ = model.inference(device, rev_vocab[BOS], z=z_prior)
 
-            for s, sample_ids in enumerate(prior_sample_ids):
-                prior_str = get_sent(sample_ids.cpu().numpy(), vocab)
-                if s % 6 == 0:
-                    cond_prior_f.write('<----------------------------------->' + "\n")
-                cond_prior_f.write(prior_str.strip() + "\n")
-        cond_prior_f.close()
+    #         for s, sample_ids in enumerate(prior_sample_ids):
+    #             prior_str = get_sent(sample_ids.cpu().numpy(), vocab)
+    #             if s % 6 == 0:
+    #                 cond_prior_f.write('<----------------------------------->' + "\n")
+    #             cond_prior_f.write(prior_str.strip() + "\n")
+    #     cond_prior_f.close()
 
 
     model.train()
@@ -1120,6 +1120,11 @@ def frange_cycle_zero_linear(n_iter, start=0.0, stop=1.0,  n_cycle=4, ratio_incr
                 v += step
             i += 1
     return L 
+
+
+def get_chat_tokenize():
+    import nltk
+    return nltk.RegexpTokenizer(r'\w+|<sil>|[^\w\s]+').tokenize
 
 
 def get_cluster_examples(args, model, test_feed, corpus_client, epoch=0, max_samples=5):
