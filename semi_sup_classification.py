@@ -37,13 +37,13 @@ def parse_args():
 
     parser = argparse.ArgumentParser()
 
-    parser.add_argument('--data_path', type=str, default='vampire_data/agnews')
-    parser.add_argument('--precomputed_bg_file', type=str, default='vampire_data/agnews/vampire.bgfreq')
+    parser.add_argument('--data_path', type=str, default='data/agnews')
+    parser.add_argument('--precomputed_bg_file', type=str, default='data/agnews/vampire.bgfreq')
     parser.add_argument('--vocab_size', type=int, default=30001)
 
 
 
-    parser.add_argument('--seed', default=1, type=int)
+    parser.add_argument('--seed', default=8888, type=int)
     parser.add_argument('--n_labels', type=int, default=2500, help='number of labels per class')
     parser.add_argument('--labeled_weight', default=200., type=float)
     parser.add_argument('--y_z_update', default=True, type=bool, help='noise term of langevin')
@@ -889,7 +889,7 @@ def train(args_job, output_dir_job, output_dir, return_dict):
                 'netG': netG.state_dict(),
                 'optG': optG.state_dict(),
             }
-            torch.save(save_dict, '{}/ckpt/ckpt_{:>06d}.pth'.format(output_dir, epoch))
+            # torch.save(save_dict, '{}/ckpt/ckpt_{:>06d}.pth'.format(output_dir, epoch))
 
 
     return_dict['stats'] = {'fid_best': fid_best, 'fid': fid}
@@ -1041,7 +1041,7 @@ def main():
 
     # run
     copy_source(__file__, output_dir)
-    opt = {'job_id': int(0), 'status': 'open', 'device': 0}
+    opt = {'job_id': int(0), 'status': 'open', 'device': 1}
     train(opt, output_dir, output_dir, {})
 
 
