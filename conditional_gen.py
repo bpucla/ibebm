@@ -23,20 +23,21 @@ import torch.nn.functional as F
 import numpy as np
 import h5py
 import time
-from optim_n2n import OptimN2N
+# from optim_n2n import OptimN2N
 from data import Dataset
-import utils
+# import utils
 import logger
 import math
 
 
-from preprocess_text import Indexer
+# from preprocess_text import Indexer
 
+# from torch.utils.tensorboard import SummaryWriter
 
 import torch.nn.utils.spectral_norm as spectral_norm
 from collections import OrderedDict, Counter
 from dataloader_bases import DataLoader
-from dgmvae import get_chat_tokenize
+# from dgmvae import get_chat_tokenize
 
 from sklearn.metrics.cluster import homogeneity_score
 import subprocess
@@ -76,6 +77,10 @@ parser.add_argument('--init_factor', type=float, default=1.)
 # LM
 parser.add_argument('--lm_lr', default=0.0001, type=float)
 parser.add_argument('--revserse_lm_lr', default=0.0001, type=float)
+parser.add_argument('--reverse_lm_num_epoch', type=int, default=8)
+parser.add_argument('--lm_pretrain', type=int, default=0)
+parser.add_argument('--pretrained_lm', type=str, default="output/012_ptb_lm_pretraining/2020-05-24-01-16-46-nll103.07/forward_lm.pt")
+parser.add_argument('--reverse_lm_eval', type=int, default=1)
 
 
 
@@ -102,8 +107,8 @@ parser.add_argument('--momentum', default=0.5, type=float)
 parser.add_argument('--lr', default=0.001, type=float)
 parser.add_argument('--prior_lr', default=0.0001, type=float)
 parser.add_argument('--max_grad_norm', default=5, type=float)
-parser.add_argument('--gpu', default=0, type=int)
-parser.add_argument('--seed', default=3435, type=int)
+parser.add_argument('--gpu', default=1, type=int)
+parser.add_argument('--seed', default=859, type=int)
 parser.add_argument('--print_every', type=int, default=100)
 parser.add_argument('--sample_every', type=int, default=1000)
 parser.add_argument('--kl_every', type=int, default=100)
@@ -1050,6 +1055,16 @@ class RNNVAE(nn.Module):
 def main(args, output_dir):
     np.random.seed(args.seed)
     torch.manual_seed(args.seed)
+    # train_data = Dataset(args.train_file)
+    # val_data = Dataset(args.val_file)
+    # test_data = Dataset(args.test_file)
+    # train_sents = train_data.batch_size.sum()
+    # vocab_size = int(train_data.vocab_size)
+    # logger.info('Train data: %d batches' % len(train_data))
+    # logger.info('Val data: %d batches' % len(val_data))
+    # logger.info('Test data: %d batches' % len(test_data))
+    # logger.info('Word vocab size: %d' % vocab_size)
+
 
     corpus_client = StanfordCorpus(args)
     corpus = corpus_client.get_corpus()
@@ -1067,15 +1082,18 @@ def main(args, output_dir):
     suffix = "%s_%s.pt" % (args.model, 'bl')
     checkpoint_path = os.path.join(checkpoint_dir, suffix)
 
+    writer = None
 
-    indexer = Indexer()
-    indexer.load_vocab(args.vocab_file)
+    # indexer = Indexer()
+    # indexer.load_vocab(args.vocab_file)
 
     device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
 
-    reverse_lm = LM(vocab_size=vocab_size, word_dim=args.dec_word_dim, h_dim=args.dec_h_dim, num_layers=args.dec_num_layers)
-    reverse_lm.cuda()
+    # reverse_lm = LM(vocab_size=vocab_size, word_dim=args.dec_word_dim, h_dim=args.dec_h_dim, num_layers=args.dec_num_layers)
+    # reverse_lm.cuda()
 
+    # forward_lm_ckpt = torch.load(args.pretrained_lm)
+    # forward_lm = forward_lm_ckpt['model']
 
     if args.train_from == '':
         model = RNNVAE(args, corpus_client.rev_vocab, vocab_size=vocab_size,
@@ -1094,6 +1112,9 @@ def main(args, output_dir):
     prior_params = [p[1] for p in model.named_parameters() if 'prior' in p[0] and p[1].requires_grad is True]
     likelihood_params = [p[1] for p in model.named_parameters() if 'prior' not in p[0] and p[1].requires_grad is True]
 
+    # optimizer_prior = torch.optim.Adam(prior_params, lr=args.prior_lr, weight_decay=args.ebm_reg)
+    # optimizer = torch.optim.Adam(likelihood_params, lr=args.lr)
+    # reverse_lm_optim = torch.optim.Adam(reverse_lm.parameters(), lr=args.revserse_lm_lr)
 
     optimizer = torch.optim.Adam([
                                      {'params': prior_params, 'lr': args.prior_lr, 'weight_decay': args.ebm_reg},
@@ -1109,6 +1130,7 @@ def main(args, output_dir):
 
     criterion = nn.NLLLoss(ignore_index=corpus_client.rev_vocab[PAD], reduction='sum')
     model.cuda()
+    # criterion.cuda()
     model.train()
 
     if args.test == 1:
@@ -1284,6 +1306,22 @@ def main(args, output_dir):
         epoch_train_time = time.time() - start_time
         logger.info('Time Elapsed: %.1fs' % epoch_train_time)
 
+        # logger.info('---')
+        # logger.info('---')
+        # logger.info('---')
+        # compute_homogeneity(model, test_feed, args)
+        # logger.info('---')
+        # logger.info('---')
+        # logger.info('---')
+
+        # logger.info('--------------------------------')
+        # logger.info('Checking validation perf...')
+        # logger.record_tabular('Epoch', epoch)
+        # logger.record_tabular('Mode', 'Val')
+        # logger.record_tabular('LR', args.lr)
+        # logger.record_tabular('Epoch Train Time', epoch_train_time)
+        # val_nll, writer = eval(args, val_data, model, forward_lm, indexer, writer, epoch, verbose=True)
+        # val_stats.append(val_nll)
 
         cluster_keys = get_cluster_examples(args, model, test_feed, corpus_client, epoch=epoch)
 
@@ -1305,13 +1343,189 @@ def main(args, output_dir):
         test_nll = eval(args, test_feed, model, corpus_client, vae_kl_weight, epoch=epoch, debug=args.debug, cluster_keys=cluster_keys)
 
 
+        # if val_nll < best_val_nll:
+        #     best_val_nll = val_nll
+        #     best_epoch = epoch
+        #     model.cpu()
+        #     checkpoint = {
+        #         'args': args.__dict__,
+        #         'model': model,
+        #         'val_stats': val_stats
+        #     }
+        #     logger.info('Save checkpoint to %s' % checkpoint_path)
+        #     torch.save(checkpoint, checkpoint_path)
+        #     model.cuda()
+        # else:
+        #     if epoch >= args.min_epochs:
+        #         args.decay = 1
+        # if args.decay == 1:
+        #   args.lr = args.lr*0.5
+        #   for param_group in optimizer.param_groups:
+        #     param_group['lr'] = args.lr
+        #   if args.lr < 0.03:
+        #     break
+
+        # if args.reverse_lm_eval:
+        #     logger.info('--------------------------------')
+        #     logger.info('Checking reverse nll...')
+        #     all_samples = collect_reverse_samples(args, train_data, model, indexer, output_dir, epoch, reconstruction=False, gaussian=False)
+        #     eval_reverse_lm(args, reverse_lm, all_samples, reverse_lm_optim, args.reverse_lm_num_epoch, test_data, indexer)
+
 
 
 
 ##--------------------------------------------------------------------------------------------------------------------##
 
 ##--------------------------------------------------------------------------------------------------------------------##
+# def collect_reverse_samples(args, data, model, indexer, output_path, train_epoch, reconstruction=False, gaussian=False):
+#     model.prior_network.eval() # TODO: eval or train mode?
+#     device = torch.device('cuda')
 
+#     all_samples = []
+
+#     for b in range(len(data)):
+#         # if b > 300:
+#         #     break
+#         sents = data[b][0].cuda()
+#         z_0_prior = sample_p_0(sents, args)
+#         if reconstruction:
+#             z_prior, _ = model.infer_z(z_0_prior, sents, args.beta, args.z_step_size, training=False, dropout=args.dec_dropout)
+#         else:
+#             if gaussian:
+#                 z_prior = z_0_prior
+#             else:
+#                 z_prior = model.infer_prior_z(z_0_prior, args, n_steps=30)[0]
+#         samples, _ = model.inference(device, indexer.d[BOS], z=z_prior)
+#         samples, length = process_generated_samples(samples, indexer.d[indexer.BOS], indexer.d[indexer.EOS], indexer.d[indexer.PAD])
+#         bos_pad = torch.tensor([indexer.d[indexer.BOS]]*samples.size(0), device=samples.device).unsqueeze(1)
+#         samples = torch.cat((bos_pad, samples), dim=1)
+
+#         all_samples.append((samples.cpu(), length))
+
+#         if (b+1) % 20 == 0:
+#             logger.info('batch{:4d} generated'.format(b+1))
+
+#         torch.save(all_samples, output_path + '/{:03d}_reverse_samples.pt'.format(train_epoch))
+
+#     return all_samples
+
+
+# def eval_reverse_lm(args, lm, model_data, optim, num_epoch, eval_data, indexer):
+
+#     criterion = nn.NLLLoss(ignore_index=indexer.d[indexer.PAD], reduction='sum')
+#     criterion_sum = nn.NLLLoss(ignore_index=indexer.d[indexer.PAD], reduction='sum')
+
+#     lm.train()
+#     device = torch.device('cuda')
+
+#     total_nll = 0.
+#     num_sents = 0.
+#     num_words = 0.
+
+#     total_nll_eval = 0.
+#     num_sents_eval = 0.
+#     num_words_eval = 0.
+
+
+#     for epoch in range(num_epoch):
+#         for b in range(len(model_data)):
+#             samples, length = model_data[b]
+#             samples = samples.to(device)
+#             batch_size = samples.size(0)
+
+#             optim.zero_grad()
+#             forward_preds = lm(samples, training=True)
+#             forward_nll = sum([criterion(forward_preds[:, l], samples[:, l + 1]) for l in range(samples.size(1)-1)]) # minus 1 accounting for the bos
+#             forward_nll.backward()
+#             optim.step()
+
+#             total_nll += forward_nll.cpu().item()
+#             num_sents += batch_size
+#             num_words += sum(length)
+
+#             if (b+1) % 100 == 0:
+#                 logger.info('reverse lm training epoch={:4d}, batch={:4d}/{:4d}, nll={:10.4f} ppl={:10.4f}'.format(epoch, b+1, len(model_data), total_nll/num_sents, np.exp(total_nll/num_words)))
+
+#         # reverse eval
+#         with torch.no_grad():
+#             lm.eval()
+#             for eval_b in range(len(eval_data)):
+#                 sents, length, batch_size = eval_data[eval_b]
+#                 sents = sents.to(device)
+#                 forward_preds = lm(sents, training=False) # TODO: training True or False
+#                 forward_nll = sum([criterion_sum(forward_preds[:, l], sents[:, l + 1]) for l in range(sents.size(1)-1)]) # minus 1 accounting for the bos
+
+#                 total_nll_eval += forward_nll.cpu().item()
+#                 num_sents_eval += batch_size
+#                 num_words_eval += batch_size * length
+#             logger.info('-----reverse nll and ppl-------')
+#             logger.info('reverse lm eval epoch={:4d}, nll={:10.4f}, ppl={:10.4f}'.format(epoch, total_nll_eval/num_sents_eval, np.exp(total_nll_eval / num_words_eval)))
+#         lm.train()
+
+
+
+# def eval_forward_lm(args, data, model, lm, indexer, nbatch=5, reconstruction=False, gaussian=False, verbose=False):
+#     model.prior_network.eval()
+#     criterion = nn.NLLLoss(ignore_index=indexer.d[indexer.PAD], reduction='sum').cuda()  # TODO: reduction='sum'
+#     lm.eval()
+#     device = torch.device('cuda')
+#     total_nll_abp = 0.
+#     num_sents = 0.
+#     num_words = 0.
+
+#     for b in range(1, nbatch+1):
+#         sents = data[b][0].cuda()
+#         z_0_prior = sample_p_0(sents, args)
+#         if reconstruction:
+#             z_prior, _ = model.infer_z(z_0_prior, sents, args.beta, args.z_step_size, training=False, dropout=args.dec_dropout)
+#         else:
+#             if gaussian:
+#                 z_prior = z_0_prior
+#             else:
+#                 z_prior = model.infer_prior_z(z_0_prior, args, n_steps=30)[0]
+#         samples, _ = model.inference(device, indexer.d[indexer.BOS], z=z_prior, training=False)
+#         samples, length = process_generated_samples(samples, indexer.d[indexer.BOS], indexer.d[indexer.EOS], indexer.d[indexer.PAD])
+#         bos_pad = torch.tensor([indexer.d[indexer.BOS]]*samples.size(0), device=samples.device).unsqueeze(1)
+#         samples = torch.cat((bos_pad, samples), dim=1)
+
+#         if verbose:
+#             logger.info(*idx2word(samples, i2w=indexer.idx2word, ending_idx=indexer.d[indexer.EOS]))
+
+#         batch_size = samples.size(0)
+#         forward_preds = lm(samples, training=False)
+#         forward_nll = sum([criterion(forward_preds[:, l], samples[:, l + 1]) for l in range(samples.size(1)-1)]) # minus 1 accounting for the bos
+#         total_nll_abp += forward_nll.cpu().item()
+#         num_sents += batch_size
+#         num_words += sum(length)
+
+#     model.train()
+#     return total_nll_abp / num_sents, np.exp(total_nll_abp / num_words)
+
+def process_generated_samples(samples, starting_idx, ending_idx, padding_idx):
+    sents = []
+    max_len = 0
+    for s in samples:
+        _s = []
+        for w in s:
+            _s.append(w)
+            if w.item() == ending_idx:
+                break
+        if len(_s) > max_len:
+            max_len = len(_s)
+        s = torch.stack(_s)
+        sents.append(s)
+
+    padded_sents = []
+    sents_len = []
+    for s in sents:
+        len_s = len(s)
+        sents_len.append(len_s)
+        diff = max_len - len_s
+        padded_s = s
+        if diff > 0:
+            padded_s = torch.cat((s, torch.tensor([padding_idx]*diff, device=samples.device)))
+        padded_sents.append(padded_s)
+    return torch.stack(padded_sents, dim=0), sents_len
 
 def get_sent(ids, vocab, stop_eos=True, stop_pad=True):
     ws = []
@@ -1578,6 +1792,10 @@ def get_cluster_examples(args, model, test_feed, corpus_client, epoch=0, max_sam
     return keys_num
 
 
+def get_chat_tokenize():
+    import nltk
+    return nltk.RegexpTokenizer(r'\w+|<sil>|[^\w\s]+').tokenize
+
 
 def compute_homogeneity(model, test_feed, args):
     test_feed.epoch_init(args, shuffle=False)
@@ -1696,25 +1914,99 @@ def sample_p_0(x, args):
         return torch.Tensor(*[x.size(0), args.latent_dim]).uniform_(-1, 1).to(x.device)
 
 
-def idx2word(idx, i2w, ending_idx):
-    sent_str = [str()] * len(idx)
+# def idx2word(idx, i2w, ending_idx):
+#     sent_str = [str()] * len(idx)
 
-    for i, sent in enumerate(idx):
+#     for i, sent in enumerate(idx):
 
-        for word_id in sent:
-            word_id = word_id.item()
+#         for word_id in sent:
+#             word_id = word_id.item()
 
-            if word_id == ending_idx:
-                break
-            sent_str[i] += i2w[word_id] + " "
+#             if word_id == ending_idx:
+#                 break
+#             sent_str[i] += i2w[word_id] + " "
 
-        sent_str[i] = sent_str[i].strip() + "\n"
-    return sent_str
+#         sent_str[i] = sent_str[i].strip() + "\n"
+#     return sent_str
+
+# def interpolate(start, end, steps):
+
+#     interpolation = np.zeros((start.shape[0], steps + 2))
+
+#     for dim, (s, e) in enumerate(zip(start, end)):
+#         interpolation[dim] = np.linspace(s, e, steps + 2)
+
+#     return interpolation.T
 
 
+# def sentence2tensor(sent, dictionary, unk_idx, device):
+#     idx = []
+#     for t in sent:
+#         idx.append(dictionary.get(t, unk_idx))
+#     tensor = torch.tensor(idx, dtype=torch.long, device=device)
+#     return tensor
+
+# def end_points(dictionary, unk_idx, device):
+#     # sents = [["<s>", "i", "want", "to", "talk", "to", "you", "</s>"],
+#     #          ["<s>", "she", "did", "n't", "want", "to", "be", "with", "him", "</s>"],
+#     #          ["<s>", "he", "was", "silent", "for", "a", "long", "moment", "</s>"],
+#     #          ["<s>", "it", "was", "my", "turn", "</s>"]]
+#     sents = [["<s>", "the", "men", "are", "feeling", "competitive", "</s>"],
+#              ["<s>", "a", "young", "woman", "is", "sitting", "in", "a", "field", "</s>"],
+
+#              ["<s>", "a", "man", "walking", "across", "a", "bridge", "near", "a", "steak", "restaurant", ".", "</s>"],
+#              ["<s>", "a", "woman", "in", "a", "white", "shirt", "and", "shorts", "is", "playing", "a", "red", "guitar", ".", "</s>"],
+
+#              ["<s>", "a", "girl", "with", "glasses", "next", "red", "white", "and", "blue", "flags", ".", "</s>"],
+#              ["<s>", "three", "greyhounds", "are", "taking", "a", "walk", "with", "their", "owner", ".", "</s>"],
+
+#              ["<s>",  "one", "young", "child", "in", "a", "swimsuit", "jumping", "off", "a", "blue", "inflatable", "slide", "with", "water", ".", "</s>"],
+#              ["<s>", "a", "girl", "swings", "from", "a", "rope", "swing", "in", "front", "</s>"],
+
+#              ["<s>", "both", "men", "are", "wearing", "similar", "colors", ".", "</s>"],
+#              ["<s>", "a", "huge", "animal", "surrounded", "</s>"],
+
+#              ["<s>", "a", "child", "is", "eating", "with", "utensils", ".", "</s>"],
+#              ["<s>", "a", "youth", "wearing", "a", "blue", "and", "red", "jersey", "and", "yellow", "helmet", "is", "crouching", "in", "a", "football", "position", ".", "</s>"],
+
+#              ["<s>", "a", "middle-aged", "man", "with", "long", ",", "curly", "red-hair", "wearing", "a", "dark", "vest", ",",
+#               "shirt", "and", "pants", "is", "holding", "a", "microphone", "in", "front", "of", "a", "black", "backdrop", ".", "</s>"],
+#              ["<s>", "people", "are", "doing", "<unk>", "</s>"],
+
+#              ["<s>", "the", "animals", "are", "near", "the", "water", ".", "</s>"],
+#              ["<s>", "a", "truck", "is", "going", "tow", "an", "illegally", "parked", "white", "volkswagon", "." "</s>"]]
+
+#     lens = [len(sent) for sent in sents]
+#     max_len = max(lens)
+#     tensors = torch.zeros((len(sents), max_len), dtype=torch.long, device=device)
+#     for i, sent in enumerate(sents):
+#         tensor = sentence2tensor(sent, dictionary, unk_idx, device)
+#         tensors[i, :tensor.size(0)] = tensor
+#     return tensors
 
 
+# def shuffle(sents, length, batch_size, device):
+#     sents = sents.detach().clone()
+#     originals = torch.randint(low=1, high=length.item()-2, size=(batch_size.item(),))
+#     assert originals.max() < length.item() - 2
+#     for i in range(batch_size.item()):
+#         original = originals[i]
+#         temp = sents[i, original].detach().clone()
+#         coinflip = torch.rand(1).to(device)
+#         if original == 1:
+#             sents[i, original] = sents[i, original+1].detach().clone()
+#             sents[i, original+1] = temp
+#         elif original == length.item() - 3:
+#             sents[i, original] = sents[i, original - 1].detach().clone()
+#             sents[i, original-1] = temp
+#         elif coinflip > 0.5:
+#             sents[i, original] = sents[i, original + 1].detach().clone()
+#             sents[i, original+1] = temp
+#         else:
+#             sents[i, original] = sents[i, original - 1].detach().clone()
+#             sents[i, original - 1] = temp
 
+#     return sents
 
 
 
@@ -1756,7 +2048,24 @@ def set_gpu(gpu):
 
     if torch.cuda.is_available():
         torch.cuda.set_device(0)
-        torch.backends.cudnn.benchmark = True
+
+def set_seed(seed, deterministic=True):
+    os.environ['PYTHONHASHSEED'] = str(seed)
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed(seed)
+        torch.cuda.manual_seed_all(seed)
+
+    if torch.cuda.is_available():
+        if not deterministic:
+            torch.backends.cudnn.deterministic = False
+            torch.backends.cudnn.benchmark = True
+        else:
+            torch.backends.cudnn.deterministic = True
+            torch.backends.cudnn.benchmark = False
+
 
 
 if __name__ == '__main__':
@@ -1764,8 +2073,10 @@ if __name__ == '__main__':
     exp_id = get_exp_id(__file__)
     output_dir = get_output_dir(exp_id)
     copy_source(__file__, output_dir)
+    # logger = setup_logging('main', output_dir)
 
     set_gpu(args.gpu)
+    set_seed(args.seed)
 
     with logger.session(dir=output_dir, format_strs=['stdout', 'csv', 'log']):
         main(args, output_dir)
